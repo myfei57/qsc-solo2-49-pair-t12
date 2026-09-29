@@ -57,9 +57,20 @@ class ViewOps:
                 "rinsing": self.pickle.rinsing(),
                 "offset": self.pickle.offset(),
                 "concentration": self.pickle.concentration(),
+                "concentrationAvg": self.pickle.concentration_average(),
+                "concentrationDelta": self.pickle.concentration_delta(),
+                "concentrationWindow": self.pickle.concentration_window(),
                 "flushed": self.pickle.flushed(),
                 "trend": self.pickle.level_trend(),
                 "rinsingPersist": rinse.active,
+                "dosePlan": (
+                    pending.to_dict()
+                    if (pending := self.pickle.pending_dose_plan())
+                    else None
+                ),
+                "doseHistory": [
+                    plan.to_dict() for plan in self.pickle.dose_plan_history(10)
+                ],
             },
             "pump": self.pump.snapshot(),
             "dry": self.dry.snapshot(),

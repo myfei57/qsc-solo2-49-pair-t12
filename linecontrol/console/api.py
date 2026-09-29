@@ -19,6 +19,9 @@ DEFAULT_AUDIT_LIMIT = 50
 #: Default page size for the seam history.
 DEFAULT_SEAM_LIMIT = 20
 
+#: Default page size for the dosing plan history.
+DEFAULT_DOSE_LIMIT = 20
+
 
 class ApiParamError(ValueError):
     """Raised when a query parameter is missing or malformed."""
@@ -211,12 +214,35 @@ class Api:
         self.line.resume_acid_loop(float_param(request, "level"))
         return {"ok": True}
 
-    def pump_replenish(self, request: Request) -> dict[str, object]:
-        plan = self.line.replenish_acid(
+    def dose_submit(self, request: Request) -> dict[str, object]:
+        plan = self.line.submit_acid_dose(
             float_param(request, "volume"),
             float_param(request, "target"),
         )
         return {"ok": True, "plan": plan.to_dict()}
+
+    def dose_pending(self, request: Request) -> dict[str, object]:
+        plan = self.line.review_acid_dose()
+        return {"ok": True, "plan": plan.to_dict() if plan else None}
+
+    def dose_review(self, request: Request) -> dict[str, object]:
+        plan_id = request.args.get("id", "")
+        plan = self.line.review_acid_dose(plan_id)
+        return {"ok": True, "plan": plan.to_dict() if plan else None}
+
+    def dose_confirm(self, request: Request) -> dict[str, object]:
+        plan = self.line.confirm_acid_dose()
+        return {"ok": True, "plan": plan.to_dict()}
+
+    def dose_withdraw(self, request: Request) -> dict[str, object]:
+        reason = request.args.get("reason", "")
+        plan = self.line.withdraw_acid_dose(reason)
+        return {"ok": True, "plan": plan.to_dict()}
+
+    def dose_history(self, request: Request) -> dict[str, object]:
+        limit = int_param(request, "limit", DEFAULT_DOSE_LIMIT)
+        plans = self.line.acid_dose_history(limit)
+        return {"ok": True, "plans": [plan.to_dict() for plan in plans]}
 
     def pickle_calibrate(self, request: Request) -> dict[str, object]:
         self.line.calibrate_acid(float_param(request, "offset"))

@@ -5,7 +5,7 @@ from __future__ import annotations
 from ..domain.events import Event
 from ..domain.kinds import EventKind
 from ..domain.records import TensionSnapshot, WeldRecord
-from ..pickle.dosing import DosePlan
+from ..pickle.dosing import DosePlanRecord
 from ..pump.errors import PumpError, PumpErrorCode
 from ..tension.state import RampPlan
 
@@ -49,16 +49,35 @@ class CommandOps:
             self.tension.apply_step(step)
         return plan
 
-    def replenish_acid(self, volume: float, target: float) -> DosePlan:
-        plan = self.pickle.plan_dose(volume, target)
-        if not plan.required:
+    def submit_acid_dose(self, volume: float, target: float) -> DosePlanRecord:
+        """Plan a dose from the concentration trend and hold it for review."""
+
+        return self.pickle.submit_dose_plan(volume, target)
+
+    def review_acid_dose(self, plan_id: str = "") -> DosePlanRecord | None:
+        if plan_id:
+            return self.pickle.dose_plan(plan_id)
+        return self.pickle.pending_dose_plan()
+
+    def confirm_acid_dose(self) -> DosePlanRecord:
+        """Apply the reviewed plan; the pump gate still guards against overdose."""
+
+        plan = self.pickle.pending_dose_plan()
+        if plan is None:
             raise PumpError(
                 PumpErrorCode.NO_REPLENISH,
-                "concentration already at target",
+                "no dosing plan awaiting review",
             )
-        self.pump.replenish_gate(target)
-        self.pickle.apply_dose(plan.dose, volume)
-        return plan
+        self.pump.replenish_gate(plan.target, measured=plan.basis.average)
+        return self.pickle.confirm_dose_plan()
+
+    def withdraw_acid_dose(self, reason: str = "") -> DosePlanRecord:
+        """Withdraw the held plan, recording why and the data window it used."""
+
+        return self.pickle.withdraw_dose_plan(reason)
+
+    def acid_dose_history(self, limit: int = 20) -> tuple[DosePlanRecord, ...]:
+        return self.pickle.dose_plan_history(limit)
 
     def resume_acid_loop(self, sample: float) -> None:
         self.pickle.level_check(sample)

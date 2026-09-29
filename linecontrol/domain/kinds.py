@@ -14,6 +14,7 @@ class EventKind(str, Enum):
     PUMP = "pump"
     LEVEL = "level"
     RINSE = "rinse"
+    DOSE = "dose"
     DRY = "dry"
     EXHAUST = "exhaust"
     SHEAR = "shear"
@@ -38,6 +39,7 @@ STREAM_KINDS: tuple[EventKind, ...] = (
     EventKind.PUMP,
     EventKind.LEVEL,
     EventKind.RINSE,
+    EventKind.DOSE,
     EventKind.DRY,
     EventKind.EXHAUST,
     EventKind.SHEAR,

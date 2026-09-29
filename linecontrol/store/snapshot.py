@@ -7,6 +7,9 @@ from typing import TypeVar
 
 from ..domain.records import (
     AcidSnapshot,
+    ConcentrationSample,
+    DoseBasis,
+    DosePlanRecord,
     LatchSnapshot,
     PumpSnapshot,
     RinseSnapshot,
@@ -21,6 +24,9 @@ T = TypeVar("T")
 #: Record classes that can be round-tripped through the snapshot helpers.
 SNAPSHOT_TYPES = (
     AcidSnapshot,
+    ConcentrationSample,
+    DoseBasis,
+    DosePlanRecord,
     LatchSnapshot,
     PumpSnapshot,
     RinseSnapshot,
@@ -77,6 +83,15 @@ def load_events(store: FileStore, key: str) -> list[dict]:
     if not isinstance(decoded, list):
         return []
     return [item for item in decoded if isinstance(item, dict)]
+
+
+def save_records(store: FileStore, key: str, records: list) -> None:
+    payload = [record.to_dict() for record in records]
+    store.save(key, json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+
+
+def load_records(store: FileStore, key: str, factory: type[T]) -> list[T]:
+    return [factory.from_dict(item) for item in load_events(store, key)]
 
 
 def snapshot_type_names() -> tuple[str, ...]:

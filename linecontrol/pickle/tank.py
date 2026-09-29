@@ -34,6 +34,7 @@ class Tank(LevelOps, ConcentrationOps, DosingOps, RinseOps, TrendOps):
 
     def snapshot(self) -> dict[str, object]:
         persisted, _ = self.rinse_persisted()
+        pending = self.pending_dose_plan()
         return {
             "level": self.level(),
             "rinsing": self.rinsing(),
@@ -41,4 +42,6 @@ class Tank(LevelOps, ConcentrationOps, DosingOps, RinseOps, TrendOps):
             "flushed": self.flushed(),
             "trend": self.level_trend(),
             "rinsingPersist": persisted.active,
+            "concentrationWindow": self.concentration_window(),
+            "dosePlan": pending.to_dict() if pending else None,
         }

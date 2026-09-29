@@ -28,6 +28,8 @@ def test_read_only_endpoints(client: FlaskClient) -> None:
         "/api/tension/persisted",
         "/api/strip/sag",
         "/api/sequence",
+        "/api/pickle/dose/pending",
+        "/api/pickle/dose/history",
     ):
         response = client.get(path)
         assert response.status_code == 200, path
@@ -142,3 +144,51 @@ def test_sequence_clear_endpoint(client: FlaskClient) -> None:
     client.post("/api/entry/sample?value=1")
     assert client.post("/api/sequence/clear").status_code == 200
     assert client.get("/api/sequence").get_json()["sequence"]["steps"] == []
+
+
+def test_dose_plan_submit_review_withdraw(client: FlaskClient) -> None:
+    # A single low reading after several on-target ones must not by itself
+    # force a dose; the endpoint plans from the captured window.
+    client.post("/api/pump/resume?level=10.0")
+    response = client.post("/api/pickle/dose?volume=20&target=12")
+    assert response.status_code == 200
+    plan = response.get_json()["plan"]
+    assert plan["required"] is True
+    assert plan["status"] == "pending"
+    assert plan["basis"]["samples"]
+    plan_id = plan["planId"]
+
+    pending = client.get("/api/pickle/dose/pending").get_json()["plan"]
+    assert pending["planId"] == plan_id
+    reviewed = client.get(f"/api/pickle/dose/review?id={plan_id}").get_json()["plan"]
+    assert reviewed["basis"]["average"] == pending["basis"]["average"]
+
+    withdrawn = client.post("/api/pickle/dose/withdraw?reason=观察回升").get_json()["plan"]
+    assert withdrawn["status"] == "withdrawn"
+    assert withdrawn["reason"] == "观察回升"
+    assert client.get("/api/pickle/dose/pending").get_json()["plan"] is None
+
+    history = client.get("/api/pickle/dose/history").get_json()["plans"]
+    assert len(history) == 1
+    assert history[0]["planId"] == plan_id
+    assert history[0]["basis"]["samples"]
+
+
+def test_dose_plan_confirm_then_replan_conflict(client: FlaskClient) -> None:
+    client.post("/api/pump/resume?level=4.0")
+    first = client.post("/api/pickle/dose?volume=20&target=10").get_json()["plan"]
+    duplicate = client.post("/api/pickle/dose?volume=20&target=10")
+    assert duplicate.status_code == 409
+    assert duplicate.get_json()["detail"]["code"] == "dose-pending"
+
+    confirmed = client.post("/api/pickle/dose/confirm").get_json()["plan"]
+    assert confirmed["status"] == "confirmed"
+    assert client.post("/api/pickle/dose/confirm").status_code == 409
+
+    # Once the trend window has been refilled with on-target readings the
+    # endpoint must refuse another dose even if an old low sample lingers.
+    for _ in range(8):
+        client.post("/api/pump/resume?level=12.0")
+    refused = client.post("/api/pickle/dose?volume=20&target=10")
+    assert refused.status_code == 409
+    assert refused.get_json()["detail"]["code"] == "dose-not-required"

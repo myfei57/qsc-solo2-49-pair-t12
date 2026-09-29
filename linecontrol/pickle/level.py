@@ -15,6 +15,7 @@ class LevelOps:
 
         self.data.level = float(sample)
         self.push_level(float(sample))
+        self.push_concentration_sample()
         self.bus.publish(
             Event(
                 kind=EventKind.LEVEL,

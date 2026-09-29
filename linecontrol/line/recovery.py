@@ -28,6 +28,7 @@ class RecoveryOps:
         self.tension.restore_tension(state.tension)
         self.pickle.restore_acid(state.acid)
         self.pickle.restore_rinse(state.rinse.active)
+        self.pickle.restore_dose_plans()
         self.pump.restore(state.pump)
         self.pump.restore_run(state.run_seconds)
         self.strip.restore_track(state.track)

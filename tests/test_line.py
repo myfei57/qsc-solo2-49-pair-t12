@@ -9,6 +9,7 @@ from linecontrol.domain.phase import Phase
 from linecontrol.entry.errors import EntryError
 from linecontrol.line.machine import Line
 from linecontrol.line.workflow import CycleInput
+from linecontrol.pickle.errors import PickleError
 from linecontrol.pump.errors import PumpError
 
 
@@ -180,12 +181,16 @@ def test_replenish_and_ramp_paths(line: Line) -> None:
     line.load_coil("C-1", 60.0)
     line.weld_and_speedup()
     line.start_acid_loop(4.0)
-    plan = line.replenish_acid(20.0, 12.0)
-    assert plan.required is True
+    submitted = line.submit_acid_dose(20.0, 12.0)
+    assert submitted.required is True
+    pending = line.review_acid_dose(submitted.plan_id)
+    assert pending is not None and pending.status == "pending"
+    confirmed = line.confirm_acid_dose()
+    assert confirmed.status == "confirmed"
     assert line.pickle.concentration() > 4.0
     line.pickle.level_check(12.0)
-    with pytest.raises(PumpError):
-        line.replenish_acid(20.0, 5.0)
+    with pytest.raises(PickleError):
+        line.submit_acid_dose(20.0, 5.0)
     ramp = line.ramp_speed(2.4)
     assert len(ramp.steps) == 5
     assert line.tension.speed() in {"running", "full"}

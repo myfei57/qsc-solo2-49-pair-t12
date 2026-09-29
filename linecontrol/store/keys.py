@@ -3,6 +3,8 @@
 KEY_TENSION = "tension.current"
 KEY_GAIN = "tension.gain"
 KEY_ACID = "pickle.acid"
+KEY_DOSE_PENDING = "pickle.dose.pending"
+KEY_DOSE_HISTORY = "pickle.dose.history"
 KEY_PUMP = "pump.state"
 KEY_TRACK = "strip.track"
 KEY_RINSE = "pickle.rinse"

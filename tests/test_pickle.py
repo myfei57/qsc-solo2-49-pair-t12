@@ -9,7 +9,7 @@ from linecontrol.domain.records import AcidSnapshot
 from linecontrol.pickle.errors import PickleError, PickleErrorCode
 from linecontrol.pickle.tank import Tank
 from linecontrol.store.filestore import FileStore
-from linecontrol.store.keys import KEY_ACID
+from linecontrol.store.keys import KEY_ACID, KEY_DOSE_HISTORY
 from linecontrol.store.snapshot import load_json
 
 
@@ -42,20 +42,110 @@ def test_calibration_rejects_an_out_of_range_offset(tmp_path) -> None:
     assert caught.value.code is PickleErrorCode.OFFSET_INVALID
 
 
-def test_dosing_plan_and_application(tmp_path) -> None:
+def test_dosing_plan_uses_the_window_average(tmp_path) -> None:
     tank = build(tmp_path)
-    tank.level_check(4.0)
+    for value in (4.0, 4.0, 6.0, 6.0):
+        tank.level_check(value)
+    assert tank.concentration_average() == pytest.approx(5.0)
+    assert tank.concentration_delta() == pytest.approx(2.0)
     plan = tank.plan_dose(volume=20.0, target=10.0)
     assert plan.required is True
-    assert plan.dose == pytest.approx(120.0)
-    tank.apply_dose(plan.dose, 20.0)
-    assert tank.concentration() == pytest.approx(10.0)
-    assert tank.plan_dose(20.0, 10.0).required is False
+    assert plan.dose == pytest.approx(100.0)
+    assert plan.basis.average == pytest.approx(5.0)
+    assert plan.basis.sample_count() == 4
     with pytest.raises(PickleError) as caught:
         tank.dose_volume(0.0, 10.0)
     assert caught.value.code is PickleErrorCode.TANK_VOLUME
-    tank.apply_dose(5.0, 0.0)
+
+
+def test_a_single_jump_does_not_drive_the_dose(tmp_path) -> None:
+    tank = build(tmp_path)
+    for value in (6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 6.0, 2.0):
+        tank.level_check(value)
+    # The instantaneous reading collapsed to 2.0, but the window still holds
+    # six 6.0 readings, so the plan follows the trend rather than the spike.
+    assert tank.concentration() == pytest.approx(2.0)
+    plan = tank.plan_dose(volume=20.0, target=10.0)
+    assert plan.dose == pytest.approx((10.0 - 5.5) * 20.0)
+
+
+def test_dose_plan_submit_confirm_and_apply(tmp_path) -> None:
+    tank = build(tmp_path)
+    tank.level_check(4.0)
+    plan = tank.submit_dose_plan(volume=20.0, target=10.0)
+    assert plan.status == "pending"
+    assert tank.pending_dose_plan() is plan
+    held = tank.dose_plan(plan.plan_id)
+    assert held is not None and held.basis.average == pytest.approx(4.0)
+    confirmed = tank.confirm_dose_plan()
+    assert confirmed.status == "confirmed"
+    assert confirmed.decided is not None
     assert tank.concentration() == pytest.approx(10.0)
+    assert tank.pending_dose_plan() is None
+    assert tank.dose_plan_history()[0].plan_id == plan.plan_id
+    assert tank.store.exists(KEY_DOSE_HISTORY)
+
+
+def test_dose_plan_can_be_withdrawn_with_its_basis(tmp_path) -> None:
+    tank = build(tmp_path)
+    for value in (4.0, 4.0, 6.0, 6.0):
+        tank.level_check(value)
+    plan = tank.submit_dose_plan(volume=20.0, target=10.0)
+    concentration_before = tank.concentration()
+    withdrawn = tank.withdraw_dose_plan("趋势在回升，先观察")
+    assert withdrawn.status == "withdrawn"
+    assert withdrawn.reason == "趋势在回升，先观察"
+    assert withdrawn.basis.sample_count() == 4
+    assert withdrawn.basis.average == pytest.approx(5.0)
+    # Withdrawal changes neither concentration nor later samples.
+    assert tank.concentration() == pytest.approx(concentration_before)
+    assert tank.pending_dose_plan() is None
+    # New readings after withdrawal do not rewrite the withdrawn evidence.
+    tank.level_check(9.0)
+    record = tank.dose_plan(plan.plan_id)
+    assert record is not None and record.status == "withdrawn"
+    assert record.basis.samples[-1].value == pytest.approx(6.0)
+    with pytest.raises(PickleError) as caught:
+        tank.withdraw_dose_plan()
+    assert caught.value.code is PickleErrorCode.DOSE_NOT_FOUND
+
+
+def test_only_one_dose_plan_waits_for_review(tmp_path) -> None:
+    tank = build(tmp_path)
+    tank.level_check(4.0)
+    tank.submit_dose_plan(volume=20.0, target=10.0)
+    with pytest.raises(PickleError) as caught:
+        tank.submit_dose_plan(volume=20.0, target=10.0)
+    assert caught.value.code is PickleErrorCode.DOSE_PENDING
+
+
+def test_submit_rejects_a_plan_that_is_not_required(tmp_path) -> None:
+    tank = build(tmp_path)
+    tank.level_check(12.0)
+    with pytest.raises(PickleError) as caught:
+        tank.submit_dose_plan(volume=20.0, target=10.0)
+    assert caught.value.code is PickleErrorCode.DOSE_NOT_REQUIRED
+
+
+def test_pending_dose_plan_survives_a_restart(tmp_path) -> None:
+    tank = build(tmp_path)
+    tank.level_check(4.0)
+    tank.calibrate(0.0)
+    tank.level_check(4.0)
+    plan = tank.submit_dose_plan(volume=20.0, target=10.0)
+    fresh = Tank(tank.store, EventBus())
+    snapshot, ok = load_json(tank.store, KEY_ACID, AcidSnapshot)
+    assert ok is True
+    fresh.restore_acid(snapshot)
+    fresh.restore_dose_plans()
+    restored = fresh.pending_dose_plan()
+    assert restored is not None
+    assert restored.plan_id == plan.plan_id
+    assert restored.basis.average == pytest.approx(4.0)
+    confirmed = fresh.confirm_dose_plan()
+    assert confirmed.status == "confirmed"
+    assert fresh.concentration() == pytest.approx(10.0)
+
 
 
 def test_rinse_valve_and_flush(tmp_path) -> None:

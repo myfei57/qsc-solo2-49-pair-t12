@@ -53,6 +53,7 @@ function renderState(state) {
   setText("effective", fmt(state.tension ? state.tension.effective : 0, 1));
   setText("concentration", fmt(state.pickle ? state.pickle.concentration : 0, 2));
   setText("level", fmt(state.pickle ? state.pickle.level : 0, 2));
+  renderDose(state.pickle || {});
   setText("rinsing", state.pickle && state.pickle.rinsing ? "开" : "关");
   setText("pump", state.pump && state.pump.running ? "运行" : "停");
   setText("dry", state.dry && state.dry.heating ? "升温" : "停");
@@ -83,6 +84,63 @@ function renderState(state) {
       const li = document.createElement("li");
       li.textContent = id;
       alarms.appendChild(li);
+    });
+  }
+}
+
+function renderDose(pickle) {
+  setText(
+    "concentrationAvg",
+    pickle.concentrationAvg !== undefined ? fmt(pickle.concentrationAvg, 2) : "-",
+  );
+  setText("concAvg", fmt(pickle.concentrationAvg, 2));
+  setText("concDelta", fmt(pickle.concentrationDelta, 2));
+  const window = pickle.concentrationWindow || {};
+  setText("concCount", window.windowSize || 0);
+
+  const samples = document.getElementById("concSamples");
+  if (samples) {
+    samples.innerHTML = "";
+    (window.samples || []).forEach(function (sample) {
+      const li = document.createElement("li");
+      const when = sample.at ? new Date(sample.at).toLocaleTimeString() : "";
+      li.textContent = when + "  " + fmt(sample.value, 2);
+      samples.appendChild(li);
+    });
+  }
+
+  const pendingNode = document.getElementById("dosePending");
+  if (pendingNode) {
+    const plan = pickle.dosePlan;
+    if (!plan) {
+      pendingNode.textContent = "暂无待复核计划";
+      pendingNode.className = "dose-pending";
+    } else {
+      const basis = plan.basis || {};
+      const from = basis.windowStarted ? new Date(basis.windowStarted).toLocaleTimeString() : "-";
+      const to = basis.windowEnded ? new Date(basis.windowEnded).toLocaleTimeString() : "-";
+      pendingNode.textContent =
+        "计划 " + plan.planId + "：补酸量 " + fmt(plan.dose, 1) +
+        "，目标 " + fmt(plan.target, 2) +
+        "，依据窗口均值 " + fmt(basis.average, 2) +
+        "（" + (basis.samples ? basis.samples.length : 0) + " 个读数，" +
+        from + " ~ " + to + "）";
+      pendingNode.className = "dose-pending active";
+    }
+  }
+
+  const history = document.getElementById("doseHistory");
+  if (history) {
+    history.innerHTML = "";
+    (pickle.doseHistory || []).slice().reverse().forEach(function (plan) {
+      const li = document.createElement("li");
+      const basis = plan.basis || {};
+      const when = plan.decided ? new Date(plan.decided).toLocaleTimeString() : "";
+      li.textContent =
+        when + " " + plan.planId + " [" + plan.status + "] 补酸 " +
+        fmt(plan.dose, 1) + "，依据均值 " + fmt(basis.average, 2) +
+        (plan.reason ? "，撤回原因：" + plan.reason : "");
+      history.appendChild(li);
     });
   }
 }
@@ -159,6 +217,15 @@ const OP_CALLS = {
   "dry-reheat": () => post("/api/dry/reheat"),
   "entry-correct": () => post("/api/entry/correct"),
   "stop": () => post("/api/stop"),
+  "dose-confirm": () => post("/api/pickle/dose/confirm"),
+  "dose-withdraw": async () => {
+    const reason = window.prompt("撤回原因（可留空）：", "");
+    if (reason === null) {
+      return;
+    }
+    const params = reason ? { reason: reason } : null;
+    await post("/api/pickle/dose/withdraw", params);
+  },
   "strip-sag": async () => {
     const data = await loadJSON("/api/strip/sag");
     window.alert("垂度 " + fmt(data.sag, 2) + " mm");
@@ -171,7 +238,7 @@ const FORM_CALLS = {
   "tension-ramp": (form) => post("/api/tension/ramp", readForm(form)),
   "tension-calibrate": (form) => post("/api/tension/calibrate", readForm(form)),
   "pump-start": (form) => post("/api/pump/start", readForm(form)),
-  "pump-replenish": (form) => post("/api/pump/replenish", readForm(form)),
+  "pump-replenish": (form) => post("/api/pickle/dose", readForm(form)),
   "pickle-calibrate": (form) => post("/api/pickle/calibrate", readForm(form)),
   "dry-dew": (form) => post("/api/dry/dew", readForm(form)),
   "dry-heat-target": (form) => post("/api/dry/heat-target", readForm(form)),

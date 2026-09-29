@@ -88,6 +88,28 @@ main {
   color: #243b53;
 }
 
+.panel-inner {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #d9e2ec;
+}
+
+.panel-inner h3 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #486581;
+}
+
+.dose-pending {
+  margin: 0 0 8px;
+  color: #627d98;
+}
+
+.dose-pending.active {
+  color: #1a5f20;
+  font-weight: 600;
+}
+
 .grid {
   display: grid;
   grid-template-columns: 120px 1fr;

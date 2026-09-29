@@ -8,6 +8,9 @@ from enum import Enum
 class PickleErrorCode(str, Enum):
     TANK_VOLUME = "tank-volume"
     OFFSET_INVALID = "offset-invalid"
+    DOSE_PENDING = "dose-pending"
+    DOSE_NOT_FOUND = "dose-not-found"
+    DOSE_NOT_REQUIRED = "dose-not-required"
 
 
 class PickleError(RuntimeError):
