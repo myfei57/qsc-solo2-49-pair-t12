@@ -5,8 +5,7 @@ from __future__ import annotations
 from ..domain.events import Event
 from ..domain.kinds import EventKind
 from ..domain.records import TensionSnapshot, WeldRecord
-from ..pickle.dosing import DosePlan
-from ..pump.errors import PumpError, PumpErrorCode
+from ..pickle.plans import DoseOrder
 from ..tension.state import RampPlan
 
 #: Alarm identifier raised for a welder overcurrent trip.
@@ -49,16 +48,25 @@ class CommandOps:
             self.tension.apply_step(step)
         return plan
 
-    def replenish_acid(self, volume: float, target: float) -> DosePlan:
-        plan = self.pickle.plan_dose(volume, target)
-        if not plan.required:
-            raise PumpError(
-                PumpErrorCode.NO_REPLENISH,
-                "concentration already at target",
-            )
-        self.pump.replenish_gate(target)
-        self.pickle.apply_dose(plan.dose, volume)
-        return plan
+    def submit_replenish_order(self, volume: float, target: float) -> DoseOrder:
+        """Plan against the concentration trend and park the order for review."""
+
+        return self.pickle.submit_dose_order(volume, target)
+
+    def confirm_replenish_order(self, order_id: str) -> DoseOrder:
+        """Apply a reviewed order through the live pump concentration gate."""
+
+        order = self.pickle.get_dose_order(order_id)
+        self.pump.replenish_gate(order.target)
+        return self.pickle.confirm_dose_order(order_id)
+
+    def withdraw_replenish_order(self, order_id: str, reason: str = "") -> DoseOrder:
+        """Withdraw a pending order, keeping the trend slice it was based on."""
+
+        return self.pickle.withdraw_dose_order(order_id, reason)
+
+    def replenish_orders(self, limit: int = 0) -> list[DoseOrder]:
+        return self.pickle.dose_orders(limit)
 
     def resume_acid_loop(self, sample: float) -> None:
         self.pickle.level_check(sample)

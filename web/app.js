@@ -41,6 +41,66 @@ function setText(id, value) {
   }
 }
 
+function renderPendingDose(pickle) {
+  const box = document.getElementById("pendingDose");
+  const order = pickle && pickle.pendingOrder;
+  if (!order) {
+    box.classList.add("hidden");
+    return;
+  }
+  box.classList.remove("hidden");
+  const view = document.getElementById("pendingDoseView");
+  const basis = order.basis || {};
+  const samples = (basis.samples || []).map((v) => fmt(v, 2)).join(", ");
+  const rows = [
+    ["计划号", order.orderId],
+    ["补酸量", fmt(order.dose, 2)],
+    ["目标浓度", fmt(order.target, 2)],
+    ["提交时窗口均值", fmt(basis.average, 2)],
+    ["趋势走向", fmt(basis.delta, 2)],
+    ["提交时间", order.submittedAt ? new Date(order.submittedAt).toLocaleString() : "-"],
+    ["依据数据段", samples || "-"],
+  ];
+  view.innerHTML = "";
+  rows.forEach(function (row) {
+    const dt = document.createElement("dt");
+    dt.textContent = row[0];
+    const dd = document.createElement("dd");
+    dd.textContent = row[1];
+    view.appendChild(dt);
+    view.appendChild(dd);
+  });
+}
+
+function renderDoseOrders(orders) {
+  const list = document.getElementById("doseOrders");
+  list.innerHTML = "";
+  (orders || []).forEach(function (order) {
+    const li = document.createElement("li");
+    const basis = order.basis || {};
+    const samples = (basis.samples || []).map((v) => fmt(v, 2)).join(", ");
+    const when = order.decidedAt
+      ? new Date(order.decidedAt).toLocaleString()
+      : new Date(order.submittedAt).toLocaleString();
+    li.className = "dose-order dose-" + order.status;
+    li.textContent =
+      order.orderId + " [" + order.status + "] 补酸 " + fmt(order.dose, 2) +
+      " 依据均值 " + fmt(basis.average, 2) +
+      " 数据段[" + samples + "] " + when +
+      (order.reason ? " 原因: " + order.reason : "");
+    list.appendChild(li);
+  });
+}
+
+async function refreshDoseOrders() {
+  try {
+    const data = await loadJSON("/api/dose/orders?limit=20");
+    renderDoseOrders(data.orders || []);
+  } catch (error) {
+    console.error(error);
+  }
+}
+
 function renderState(state) {
   const badge = document.getElementById("phase");
   badge.textContent = state.phase || "idle";
@@ -53,6 +113,18 @@ function renderState(state) {
   setText("effective", fmt(state.tension ? state.tension.effective : 0, 1));
   setText("concentration", fmt(state.pickle ? state.pickle.concentration : 0, 2));
   setText("level", fmt(state.pickle ? state.pickle.level : 0, 2));
+  if (state.pickle) {
+    const delta = state.pickle.trend || 0;
+    setText("trend", (delta >= 0 ? "↑ +" : "↓ ") + fmt(delta, 2));
+    setText("trendAverage", state.pickle.trendReady ? fmt(state.pickle.trendAverage, 2) : "采样不足");
+    const samples = state.pickle.trendSamples || [];
+    const need = state.pickle.trendMinSamples || 0;
+    setText(
+      "trendSamples",
+      samples.length + "/" + (state.pickle.trendWindow || 0) +
+        (samples.length >= need ? "" : "（至少 " + need + " 次）")
+    );
+  }
   setText("rinsing", state.pickle && state.pickle.rinsing ? "开" : "关");
   setText("pump", state.pump && state.pump.running ? "运行" : "停");
   setText("dry", state.dry && state.dry.heating ? "升温" : "停");
@@ -71,6 +143,7 @@ function renderState(state) {
   });
 
   const alarms = document.getElementById("alarmList");
+  renderPendingDose(state.pickle);
   alarms.innerHTML = "";
   const active = state.alarms || [];
   if (!active.length) {
@@ -132,6 +205,7 @@ async function refresh() {
     renderSequence(data.state ? data.state.sequence : null);
     const summary = await loadJSON("/api/audit/summary");
     renderSummary(summary.summary || {});
+    await refreshDoseOrders();
   } catch (error) {
     console.error(error);
   }
@@ -163,6 +237,36 @@ const OP_CALLS = {
     const data = await loadJSON("/api/strip/sag");
     window.alert("垂度 " + fmt(data.sag, 2) + " mm");
   },
+  "dose-confirm": async () => {
+    const pending = readPendingOrderId();
+    if (!pending) {
+      return;
+    }
+    const data = await post("/api/dose/confirm?order=" + encodeURIComponent(pending));
+    window.alert("计划 " + pending + " 已执行，补酸 " + fmt(data.order.dose, 2));
+    await refreshDoseOrders();
+  },
+  "dose-withdraw": async () => {
+    const pending = readPendingOrderId();
+    if (!pending) {
+      return;
+    }
+    const reason = document.getElementById("withdrawReason").value;
+    const data = await post(
+      "/api/dose/withdraw?order=" + encodeURIComponent(pending) +
+        "&reason=" + encodeURIComponent(reason)
+    );
+    const basis = data.order.basis || {};
+    window.alert(
+      "计划 " + pending + " 已撤回\n依据窗口均值 " + fmt(basis.average, 2) +
+      "\n数据段: " + (basis.samples || []).map((v) => fmt(v, 2)).join(", ")
+    );
+    document.getElementById("withdrawReason").value = "";
+    await refreshDoseOrders();
+  },
+  "dose-refresh": async () => {
+    await refreshDoseOrders();
+  },
 };
 
 const FORM_CALLS = {
@@ -184,6 +288,15 @@ const FORM_CALLS = {
   "cycle": (form) => post("/api/cycle", readForm(form)),
   "audit-query": (form) => refreshAudit(form.kind.value, form.limit.value),
 };
+
+function readPendingOrderId() {
+  const pending = document.getElementById("pendingDose");
+  if (pending.classList.contains("hidden")) {
+    return "";
+  }
+  const dds = document.querySelectorAll("#pendingDoseView dd");
+  return dds.length ? dds[0].textContent : "";
+}
 
 function readForm(form) {
   const data = {};

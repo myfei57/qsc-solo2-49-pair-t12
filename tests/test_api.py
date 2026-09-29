@@ -142,3 +142,69 @@ def test_sequence_clear_endpoint(client: FlaskClient) -> None:
     client.post("/api/entry/sample?value=1")
     assert client.post("/api/sequence/clear").status_code == 200
     assert client.get("/api/sequence").get_json()["sequence"]["steps"] == []
+
+
+def _feed_tank(client: FlaskClient, values: list[float]) -> None:
+    """Push calibrated concentrations through the running tank's trend."""
+
+    line = client.application.config["LINE_API"].line
+    line.pump.start_gate()
+    for value in values:
+        line.pickle.level_check(value)
+
+
+def test_dose_order_submit_confirm_withdraw(client: FlaskClient) -> None:
+    # Four flat-low readings establish a settled below-target trend.
+    _feed_tank(client, [6.0, 6.0, 6.0, 6.0])
+    state = client.get("/api/state").get_json()["state"]
+    assert state["pickle"]["trendReady"] is True
+    assert len(state["pickle"]["trendSamples"]) == 4
+
+    submitted = client.post("/api/pump/replenish?volume=20&target=10")
+    assert submitted.status_code == 200
+    order = submitted.get_json()["order"]
+    assert order["status"] == "submitted"
+    assert order["basis"]["samples"] == [6.0, 6.0, 6.0, 6.0]
+    order_id = order["orderId"]
+    state = client.get("/api/state").get_json()["state"]
+    assert state["pickle"]["pendingOrder"]["orderId"] == order_id
+
+    confirmed = client.post(f"/api/dose/confirm?order={order_id}")
+    assert confirmed.get_json()["order"]["status"] == "confirmed"
+    assert client.get("/api/state").get_json()["state"]["pickle"]["pendingOrder"] is None
+
+    _feed_tank(client, [8.0, 8.0, 8.0, 8.0])
+    second = client.post("/api/pump/replenish?volume=20&target=12").get_json()["order"]
+    withdrawn = client.post(
+        f"/api/dose/withdraw?order={second['orderId']}&reason=lab-recheck"
+    )
+    body = withdrawn.get_json()["order"]
+    assert body["status"] == "withdrawn"
+    # The withdrawn order keeps the exact window slice it was judged on.
+    assert body["basis"]["average"] == 8.0
+    assert len(body["basis"]["sampledAt"]) == 4
+
+    orders = client.get("/api/dose/orders?limit=10").get_json()["orders"]
+    assert [item["orderId"] for item in orders] == [second["orderId"], order_id]
+    assert withdrawn.status_code == 200
+
+
+def test_dose_order_needs_a_trend_window(client: FlaskClient) -> None:
+    _feed_tank(client, [4.0])
+    response = client.post("/api/pump/replenish?volume=20&target=10")
+    assert response.status_code == 409
+    assert response.get_json()["detail"]["code"] == "trend-not-ready"
+
+
+def test_dose_order_confirm_after_recovery_is_blocked(client: FlaskClient) -> None:
+    _feed_tank(client, [8.0, 8.0, 8.0, 8.0])
+    order = client.post("/api/pump/replenish?volume=20&target=12").get_json()["order"]
+    # Concentration climbs past target while the order awaits review.
+    client.application.config["LINE_API"].line.pickle.level_check(13.0)
+    response = client.post(f"/api/dose/confirm?order={order['orderId']}")
+    assert response.status_code == 409
+    assert response.get_json()["detail"]["code"] == "no-replenish"
+    withdrawn = client.post(
+        f"/api/dose/withdraw?order={order['orderId']}&reason=recovered"
+    )
+    assert withdrawn.status_code == 200

@@ -212,11 +212,27 @@ class Api:
         return {"ok": True}
 
     def pump_replenish(self, request: Request) -> dict[str, object]:
-        plan = self.line.replenish_acid(
+        order = self.line.submit_replenish_order(
             float_param(request, "volume"),
             float_param(request, "target"),
         )
-        return {"ok": True, "plan": plan.to_dict()}
+        return {"ok": True, "order": order.to_dict()}
+
+    def dose_orders(self, request: Request) -> dict[str, object]:
+        limit = int_param(request, "limit", DEFAULT_AUDIT_LIMIT)
+        orders = self.line.replenish_orders(limit)
+        return {"ok": True, "orders": [order.to_dict() for order in orders]}
+
+    def dose_confirm(self, request: Request) -> dict[str, object]:
+        order = self.line.confirm_replenish_order(request.args.get("order", ""))
+        return {"ok": True, "order": order.to_dict()}
+
+    def dose_withdraw(self, request: Request) -> dict[str, object]:
+        reason = request.args.get("reason", "")
+        order = self.line.withdraw_replenish_order(
+            request.args.get("order", ""), reason
+        )
+        return {"ok": True, "order": order.to_dict()}
 
     def pickle_calibrate(self, request: Request) -> dict[str, object]:
         self.line.calibrate_acid(float_param(request, "offset"))

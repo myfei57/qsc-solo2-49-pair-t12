@@ -59,6 +59,16 @@ class ViewOps:
                 "concentration": self.pickle.concentration(),
                 "flushed": self.pickle.flushed(),
                 "trend": self.pickle.level_trend(),
+                "trendSamples": [sample.to_dict() for sample in self.pickle.trend_samples()],
+                "trendAverage": self.pickle.trend_average(),
+                "trendReady": self.pickle.trend_ready(),
+                "trendMinSamples": self.pickle.trend_min_samples(),
+                "trendWindow": self.pickle.trend_window(),
+                "pendingOrder": (
+                    pending.to_dict()
+                    if (pending := self.pickle.pending_dose_order())
+                    else None
+                ),
                 "rinsingPersist": rinse.active,
             },
             "pump": self.pump.snapshot(),

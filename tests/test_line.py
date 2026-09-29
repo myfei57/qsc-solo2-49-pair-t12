@@ -180,12 +180,23 @@ def test_replenish_and_ramp_paths(line: Line) -> None:
     line.load_coil("C-1", 60.0)
     line.weld_and_speedup()
     line.start_acid_loop(4.0)
-    plan = line.replenish_acid(20.0, 12.0)
-    assert plan.required is True
+    for _ in range(3):
+        line.pickle.level_check(4.0)
+    order = line.submit_replenish_order(20.0, 12.0)
+    assert order.status.value == "submitted"
+    confirmed = line.confirm_replenish_order(order.order_id)
+    assert confirmed.status.value == "confirmed"
     assert line.pickle.concentration() > 4.0
-    line.pickle.level_check(12.0)
+    # Flat below-target window, so the recovering-trend guard does not fire.
+    for _ in range(4):
+        line.pickle.level_check(8.0)
+    order = line.submit_replenish_order(20.0, 13.0)
+    line.pickle.level_check(14.0)
     with pytest.raises(PumpError):
-        line.replenish_acid(20.0, 5.0)
+        # The tank recovered while the order awaited review.
+        line.confirm_replenish_order(order.order_id)
+    withdrawn = line.withdraw_replenish_order(order.order_id, "concentration recovered")
+    assert withdrawn.basis.average < 13.0
     ramp = line.ramp_speed(2.4)
     assert len(ramp.steps) == 5
     assert line.tension.speed() in {"running", "full"}

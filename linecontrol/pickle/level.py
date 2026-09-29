@@ -11,10 +11,14 @@ class LevelOps:
     """Mixed into :class:`~linecontrol.pickle.tank.Tank`."""
 
     def level_check(self, sample: float) -> None:
-        """Record a fresh level reading and publish it on the bus."""
+        """Record a fresh level reading and publish it on the bus.
+
+        The trend window keeps the calibrated concentration so dosing
+        decisions compare like with like after a calibration offset change.
+        """
 
         self.data.level = float(sample)
-        self.push_level(float(sample))
+        self.push_level(self.concentration())
         self.bus.publish(
             Event(
                 kind=EventKind.LEVEL,

@@ -9,7 +9,12 @@ class ReplenishOps:
     """Mixed into :class:`~linecontrol.pump.pump.Pump`."""
 
     def replenish_gate(self, min_concentration: float) -> None:
-        """Refuse a dose request while the tank is already above target."""
+        """Refuse to apply a dose while the live tank is already above target.
+
+        A dose order is planned from a frozen trend window, but confirmation
+        re-reads the live concentration: if the tank recovered while the
+        order awaited review, applying the dose would overshoot.
+        """
 
         concentration = self.tank.concentration()
         if concentration >= min_concentration:

@@ -29,6 +29,9 @@
         <dt>实际张力</dt><dd id="effective">0</dd>
         <dt>槽体液位</dt><dd id="level">0</dd>
         <dt>酸浓度</dt><dd id="concentration">0</dd>
+        <dt>浓度趋势(近8次)</dt><dd id="trend">-</dd>
+        <dt>窗口均值</dt><dd id="trendAverage">-</dd>
+        <dt>趋势依据</dt><dd id="trendSamples">-</dd>
         <dt>喷淋</dt><dd id="rinsing">关</dd>
         <dt>酸泵</dt><dd id="pump">停</dd>
         <dt>烘干炉</dt><dd id="dry">停</dd>
@@ -80,11 +83,29 @@
         <label>槽体液位<input name="level" type="number" step="0.1" value="4.2"></label>
         <button type="submit">启动酸循环</button>
       </form>
-      <form class="inline" data-form="pump-replenish">
-        <label>槽体容积<input name="volume" type="number" step="1" value="30"></label>
-        <label>目标浓度<input name="target" type="number" step="0.1" value="18"></label>
-        <button type="submit">补酸计算</button>
-      </form>
+      <div class="panel" id="dosePanel">
+        <h2>补酸（按浓度趋势）</h2>
+        <p class="hint">按最近 8 次浓度读数的均值和走向判定，单次跳动不触发补酸。提交后计划进入待复核状态，确认才实际补酸；撤回时保留当时依据的数据段。</p>
+        <form class="inline" data-form="pump-replenish">
+          <label>槽体容积<input name="volume" type="number" step="1" value="30"></label>
+          <label>目标浓度<input name="target" type="number" step="0.1" value="18"></label>
+          <button type="submit">提交补酸计划</button>
+        </form>
+        <div id="pendingDose" class="dose-pending hidden">
+          <h3>待复核计划</h3>
+          <dl id="pendingDoseView" class="grid"></dl>
+          <label class="reason">撤回原因<input id="withdrawReason" type="text" placeholder="如：化验复核浓度正常"></label>
+          <div class="ops">
+            <button type="button" data-op="dose-confirm">确认执行补酸</button>
+            <button type="button" data-op="dose-withdraw">撤回计划</button>
+          </div>
+        </div>
+        <div class="panel-inner">
+          <h3>补酸计划记录</h3>
+          <button type="button" data-op="dose-refresh">刷新记录</button>
+          <ul id="doseOrders" class="dose-orders"></ul>
+        </div>
+      </div>
       <form class="inline" data-form="pickle-calibrate">
         <label>浓度偏移<input name="offset" type="number" step="0.1" value="0.6"></label>
         <button type="submit">标定酸浓度</button>
